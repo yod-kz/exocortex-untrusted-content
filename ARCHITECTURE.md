@@ -14,13 +14,13 @@
 ┌──────────────────────────────────────────────────────────────┐
 │                    Content Pipeline                           │
 │                                                              │
-│  ┌──────────┐   ┌──────────┐   ┌──────────┐   ┌──────────┐ │
-│  │Sanitizer │──▶│ Scanner  │──▶│ Honeypot │──▶│Quarantine│ │
-│  │          │   │(windowed)│   │  Tools   │   │ + Alert  │ │
-│  └──────────┘   └──────────┘   └──────────┘   └──────────┘ │
-│                                                              │
-│  Each stage is optional. Caller configures which stages      │
-│  run based on source trust level and output requirements.    │
+│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌────────┐  ┌──────────┐ │
+│  │Sanitizer │─▶│Guardrail │─▶│ Scanner  │─▶│Honeypot│─▶│Quarantine│ │
+│  │          │  │Classifier│  │(windowed)│  │ Tools  │  │ + Alert  │ │
+│  └──────────┘  └──────────┘  └──────────┘  └────────┘  └──────────┘ │
+│                                                                      │
+│  Each stage is optional. Caller configures which stages              │
+│  run based on source trust level and output requirements.            │
 └──────────────────────────────────────────────────────────────┘
                                    │
                                    ▼
@@ -55,6 +55,8 @@ Agent Framework ──HTTP/gRPC──▶ Content Pipeline Service
   },
   "pipeline": {
     "sanitize": true,
+    "guardrail": true,
+    "guardrailModel": "qwenguard-7b",
     "scan": true,
     "scanModel": "gemini-2.0-flash",
     "windowSize": 250,
@@ -73,6 +75,17 @@ Agent Framework ──HTTP/gRPC──▶ Content Pipeline Service
   "metadata": {
     "originalLength": 25000,
     "sanitizedLength": 24800,
+    "guardrail": {
+      "model": "qwenguard-7b",
+      "categories": {
+        "prompt_injection": 0.02,
+        "jailbreak": 0.01,
+        "harmful_content": 0.03,
+        "safe": 0.97
+      },
+      "verdict": "pass",
+      "latencyMs": 48
+    },
     "windowsScanned": 124,
     "scanTimeMs": 450,
     "truncated": false
@@ -89,15 +102,125 @@ Tight integration with OpenClaw's tool system:
 3. **Alert routing** — honeypot triggers alert the main agent via sessions_send
 4. **Session kill** — compromised sessions terminated automatically
 
+## Guardrail Classifier Stage
+
+### Purpose
+
+Fast, local binary/multi-class classification of content against known threat
+taxonomies. Runs **before** the windowed scanner to catch known-pattern attacks
+cheaply, reserving the more expensive LLM scanner for novel/subtle injections.
+
+### Model Options
+
+| Model | Size | Taxonomy | Notes |
+|-------|------|----------|-------|
+| **QwenGuard** (recommended) | ~7B | Prompt injection, jailbreak, harmful content, PII | Most modern, actively maintained, broad coverage |
+| LlamaGuard 3 | 8B | 13 hazard categories (MLCommons) | Well-established, Meta-backed |
+| ShieldGemma | 2B/9B | Sexually explicit, dangerous, harassment, hate | Google, smaller option available |
+| PromptGuard | 86M | Prompt injection + jailbreak only | Tiny, very fast, narrow scope |
+
+**Default recommendation: QwenGuard** — best balance of coverage, modernity,
+and community support. If running on constrained hardware, PromptGuard (86M)
+as a fast first pass, then QwenGuard for flagged content.
+
+### Integration
+
+The guardrail classifier runs on the full sanitized content (post-sanitizer,
+pre-scanner). It's a single inference call, not windowed — these models are
+designed for exactly this classification task and handle full documents.
+
+```
+Sanitized Content
+       │
+       ▼
+┌─────────────────────────────────────────────────────┐
+│  Guardrail Classifier                                │
+│                                                     │
+│  Input:  sanitized text (may be chunked for long    │
+│          content, but chunks are large — 4K+ tokens)│
+│  Output: category labels + confidence scores        │
+│                                                     │
+│  Categories (QwenGuard):                            │
+│    - prompt_injection (0.0-1.0)                     │
+│    - jailbreak (0.0-1.0)                            │
+│    - harmful_content (0.0-1.0)                      │
+│    - pii_exposure (0.0-1.0)                         │
+│    - safe (0.0-1.0)                                 │
+│                                                     │
+│  Thresholds (configurable):                         │
+│    > 0.9: block + quarantine (skip scanner)         │
+│    > 0.7: flag + continue to scanner for detail     │
+│    < 0.7: pass to scanner or skip (trust level)     │
+└──────────────────┬──────────────────────────────────┘
+                   │
+                   ▼
+           Scanner (if needed)
+```
+
+### Why This Stage Exists
+
+The windowed LLM scanner is powerful but expensive — it runs N small inference
+calls per document. The guardrail classifier is a single call on a small
+specialized model. The economics:
+
+| Stage | Model | Calls per doc | Latency | Cost |
+|-------|-------|---------------|---------|------|
+| Guardrail | QwenGuard 7B (local) | 1 | ~50ms | ~free (local GPU) |
+| Scanner | Gemini Flash / Kimi K2.5 | N (windows) | ~500ms-2s | API tokens |
+
+For content that's obviously malicious (known injection patterns, jailbreak
+templates), the guardrail catches it in 50ms and the scanner never runs.
+The scanner is reserved for the subtle stuff — novel injections, context-dependent
+attacks, adversarial content that doesn't match known patterns.
+
+### Deployment
+
+Assumes access to a system running the classifier model. Options:
+
+1. **Local GPU** (preferred) — run via vLLM, Ollama, or TGI on Blackwells/consumer GPU
+2. **Kamiwaza Tokenator** — deploy QwenGuard as a model, hit the OpenAI-compatible endpoint
+3. **Remote API** — if a hosted guardrail service exists
+
+```json
+{
+  "guardrail": {
+    "enabled": true,
+    "model": "qwenguard-7b",
+    "endpoint": "http://localhost:8080/v1/chat/completions",
+    "blockThreshold": 0.9,
+    "flagThreshold": 0.7,
+    "fallbackOnError": "quarantine"
+  }
+}
+```
+
+`fallbackOnError: "quarantine"` means if the classifier is unavailable, content
+is quarantined (fail safe), not passed through.
+
+### Relationship to Other Stages
+
+```
+Sanitizer → strips known-bad patterns (regex, unicode normalization)
+Guardrail → catches known threat taxonomies (fast classifier model)
+Scanner   → catches novel/subtle injections (LLM reasoning over windows)
+Honeypot  → catches anything that survived all above (runtime tripwire)
+```
+
+Each layer is independent and catches a different class of threat:
+- Sanitizer: structural attacks (invisible chars, encoding tricks)
+- Guardrail: pattern attacks (known injection templates, jailbreak patterns)
+- Scanner: semantic attacks (novel injections that require reasoning to detect)
+- Honeypot: behavioral attacks (whatever survived processing, caught at execution)
+
 ## Source Trust Levels
 
 The caller defines trust level per source, which determines default pipeline config:
 
-| Trust Level | Sanitize | Scan | Honeypot | Example Sources |
-|-------------|----------|------|----------|-----------------|
-| `untrusted` | ✅ | ✅ | ✅ | Web scrapes, UGC, social media, email |
-| `semi-trusted` | ✅ | Optional | ✅ | Known APIs, partner services |
-| `trusted` | Optional | ❌ | Optional | Internal tools, verified sources |
+| Trust Level | Sanitize | Guardrail | Scan | Honeypot | Example Sources |
+|-------------|----------|-----------|------|----------|-----------------|
+| `untrusted` | ✅ | ✅ | ✅ | ✅ | Web scrapes, UGC, social media, email |
+| `semi-trusted` | ✅ | ✅ | Optional | ✅ | Known APIs, partner services |
+| `trusted` | Optional | Optional | ❌ | Optional | Internal tools, verified sources |
 
 ## Threat Response Actions
 
