@@ -4,6 +4,7 @@
   "gatewayPort": 18789,
   "gatewayToken": "",
   "alertSessionKey": "agent:main:main",
+  "pipelineApiUrl": "http://127.0.0.1:8787",
   "logPath": "/var/log/honeypot",
   "killOnTrigger": true,
   "snapshotBrowser": true,

@@ -22,6 +22,7 @@ Fake tools exposed to the agent that serve as prompt injection tripwires.
 - `SKILL.md` — OpenClaw skill definition with honeypot tool schemas
 - `honeypot.sh` — Triggered when a honeypot tool is called. Logs, alerts, kills.
 - `config.json` — Configuration: alert targets, log paths, kill behavior
+- Optional pipeline ingest — `honeypot.sh` can POST incidents to `tool-untrusted-content` (`/v1/honeypot/trigger`)
 
 ## Setup
 
@@ -39,6 +40,7 @@ Fake tools exposed to the agent that serve as prompt injection tripwires.
   "gatewayPort": 18789,
   "gatewayToken": "",
   "alertSessionKey": "agent:main:main",
+  "pipelineApiUrl": "http://127.0.0.1:8787",
   "logPath": "/var/log/honeypot",
   "killOnTrigger": true,
   "snapshotBrowser": true,

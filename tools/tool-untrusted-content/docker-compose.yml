@@ -1,0 +1,16 @@
+services:
+  tool-untrusted-content:
+    build:
+      context: ../..
+      dockerfile: tools/tool-untrusted-content/Dockerfile
+    image: kamiwazaai/tool-untrusted-content:latest
+    environment:
+      UTC_DATA_ROOT: /var/lib/untrusted-content
+      UTC_DEFAULT_TRUST_LEVEL: untrusted
+      UTC_GUARDRAIL_MODE: heuristic
+      UTC_SCANNER_MODE: heuristic
+      UTC_WRITE_FILES: "true"
+    ports:
+      - "8787:8787"
+    volumes:
+      - ../../var/lib/untrusted-content:/var/lib/untrusted-content

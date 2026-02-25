@@ -88,8 +88,9 @@ complete window. This is enough to catch most injection signatures.
 
 ## Status
 
-- [ ] Scanner prompt finalized and tested
-- [ ] Batch scanning implementation
-- [ ] KV cache verification (confirm prefix sharing)
+- [x] Scanner prompt finalized and tested (heuristic + OpenAI-compatible modes)
+- [x] Windowed scanning implementation (configurable size/overlap)
+- [ ] Batch scanning implementation (future optimization)
+- [ ] KV cache verification (future optimization)
 - [ ] False positive / false negative benchmarking
-- [ ] Integration with sanitizer pipeline
+- [x] Integration with sanitizer pipeline

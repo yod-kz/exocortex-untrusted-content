@@ -12,13 +12,20 @@
 #   GATEWAY_TOKEN      Gateway auth token (overrides config)
 #   GATEWAY_HOST       Gateway host (overrides config, default: 127.0.0.1)
 #   GATEWAY_PORT       Gateway port (overrides config, default: 18789)
+#   PIPELINE_API_URL   Optional untrusted-content API base URL
 
 set -euo pipefail
 
 TOOL_NAME="${1:-unknown}"
 SESSION_KEY="${2:-unknown}"
-ARGS_JSON="${3:-{}}"
+RAW_ARGS_JSON="${3:-{}}"
 TIMESTAMP="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+if ARGS_JSON_PARSED="$(printf '%s' "$RAW_ARGS_JSON" | jq -c . 2>/dev/null)"; then
+    ARGS_JSON="$ARGS_JSON_PARSED"
+else
+    ARGS_JSON="{}"
+fi
 
 # --- Load config ---
 CONFIG_PATH="${HONEYPOT_CONFIG:-$(dirname "$0")/config.json}"
@@ -27,14 +34,16 @@ if [[ -f "$CONFIG_PATH" ]]; then
     GATEWAY_PORT="${GATEWAY_PORT:-$(jq -r '.gatewayPort // 18789' "$CONFIG_PATH")}"
     GATEWAY_TOKEN="${GATEWAY_TOKEN:-$(jq -r '.gatewayToken // ""' "$CONFIG_PATH")}"
     ALERT_SESSION="${ALERT_SESSION:-$(jq -r '.alertSessionKey // "agent:main:main"' "$CONFIG_PATH")}"
+    PIPELINE_API_URL="${PIPELINE_API_URL:-$(jq -r '.pipelineApiUrl // ""' "$CONFIG_PATH")}"
     LOG_PATH="$(jq -r '.logPath // "/var/log/honeypot"' "$CONFIG_PATH")"
-    KILL_ON_TRIGGER="$(jq -r '.killOnTrigger // true' "$CONFIG_PATH")"
-    SNAPSHOT_BROWSER="$(jq -r '.snapshotBrowser // true' "$CONFIG_PATH")"
+    KILL_ON_TRIGGER="$(jq -r 'if has("killOnTrigger") then .killOnTrigger else true end' "$CONFIG_PATH")"
+    SNAPSHOT_BROWSER="$(jq -r 'if has("snapshotBrowser") then .snapshotBrowser else true end' "$CONFIG_PATH")"
 else
     GATEWAY_HOST="${GATEWAY_HOST:-127.0.0.1}"
     GATEWAY_PORT="${GATEWAY_PORT:-18789}"
     GATEWAY_TOKEN="${GATEWAY_TOKEN:-}"
     ALERT_SESSION="${ALERT_SESSION:-agent:main:main}"
+    PIPELINE_API_URL="${PIPELINE_API_URL:-}"
     LOG_PATH="/var/log/honeypot"
     KILL_ON_TRIGGER="true"
     SNAPSHOT_BROWSER="true"
@@ -63,6 +72,21 @@ EOF
 
 echo "[HONEYPOT] ${TIMESTAMP} Tool=${TOOL_NAME} Session=${SESSION_KEY}" >&2
 echo "[HONEYPOT] Arguments: ${ARGS_JSON}" >&2
+
+# --- Optional: send incident to untrusted-content pipeline ---
+SAFE_ARGS="${ARGS_JSON}"
+if [[ -n "$PIPELINE_API_URL" ]]; then
+    curl -sf --max-time 5 \
+        -X POST "${PIPELINE_API_URL%/}/v1/honeypot/trigger" \
+        -H "Content-Type: application/json" \
+        -d "$(jq -n \
+            --arg tool "$TOOL_NAME" \
+            --arg session "$SESSION_KEY" \
+            --arg incident "$INCIDENT_ID" \
+            --argjson arguments "$SAFE_ARGS" \
+            '{tool_name: $tool, session_key: $session, incident_id: $incident, arguments: $arguments}')" \
+        >/dev/null 2>&1 || echo "[HONEYPOT] Warning: failed to notify pipeline API" >&2
+fi
 
 # --- Capture browser snapshot (forensics) ---
 if [[ "$SNAPSHOT_BROWSER" == "true" ]]; then

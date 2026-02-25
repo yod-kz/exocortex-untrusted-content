@@ -1,0 +1,25 @@
+{
+  "name": "tool-untrusted-content",
+  "version": "0.1.0",
+  "source_type": "kamiwaza",
+  "visibility": "public",
+  "description": "Sanitize and scan untrusted content with guardrails, windowed injection detection, and quarantine logging.",
+  "category": "security",
+  "tags": [
+    "security",
+    "prompt-injection",
+    "guardrail",
+    "tool"
+  ],
+  "risk_tier": 1,
+  "verified": false,
+  "preferred_model_type": null,
+  "image": "kamiwazaai/tool-untrusted-content:v0.1.0",
+  "env_defaults": {
+    "UTC_DATA_ROOT": "/var/lib/untrusted-content",
+    "UTC_DEFAULT_TRUST_LEVEL": "untrusted",
+    "UTC_GUARDRAIL_MODE": "heuristic",
+    "UTC_SCANNER_MODE": "heuristic",
+    "UTC_WRITE_FILES": "true"
+  }
+}

@@ -48,6 +48,6 @@ Pre-processing stage that normalizes untrusted content before scanning or agent 
 
 ## Status
 
-- [ ] Implementation
-- [ ] Test suite with known evasion techniques
-- [ ] Integration with scanner pipeline
+- [x] Implementation
+- [x] Test suite (core sanitizer behaviors)
+- [x] Integration with scanner pipeline
