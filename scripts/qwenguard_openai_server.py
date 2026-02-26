@@ -19,6 +19,11 @@ HOST = os.getenv("QWENGUARD_HOST", "127.0.0.1")
 PORT = int(os.getenv("QWENGUARD_PORT", "8080"))
 MAX_NEW_TOKENS = int(os.getenv("QWENGUARD_MAX_NEW_TOKENS", "96"))
 
+_TOOL_NAME_RE = re.compile(r"\b(run_command|write_file|send_http_request|read_system_file)\b")
+_TOOL_INTENT_RE = re.compile(
+    r"\b(call|use|invoke|execute|run)\s+(the\s+)?(tool\s+)?(run_command|write_file|send_http_request|read_system_file)\b"
+)
+
 
 class ChatMessage(BaseModel):
     role: str
@@ -163,8 +168,13 @@ def _extract_scores(*, model_output: str, source_text: str) -> dict[str, float]:
     harmful = 0.0
     pii = 0.0
 
-    if any(k in lower for k in ["ignore previous", "override", "run_command", "write_file", "send_http_request"]):
+    if any(k in lower for k in ["ignore previous", "disregard previous", "override instructions", "you are now", "system:"]):
         prompt_injection = 0.85
+    elif _TOOL_INTENT_RE.search(lower):
+        prompt_injection = 0.8
+    elif _TOOL_NAME_RE.search(lower) and any(k in lower for k in ["credentials", "private key", "curl", "exfiltrate"]):
+        prompt_injection = 0.65
+
     if any(k in lower for k in ["jailbreak", "dan", "bypass safety"]):
         jailbreak = 0.8
     if any(k in lower for k in ["curl", "exfiltrate", "malicious", "harmful"]):

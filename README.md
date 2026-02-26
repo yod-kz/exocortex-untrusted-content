@@ -149,6 +149,13 @@ PYTHONPATH=src python3 scripts/eval_synthetic_injections.py --mode heuristic
 The benchmark includes malicious injection-like prompts and benign content and
 prints confusion-matrix metrics plus per-case outcomes.
 
+Use the false-positive stress profile to test documentation/reference text with
+tool-name mentions:
+
+```bash
+PYTHONPATH=src python3 scripts/eval_synthetic_injections.py --mode heuristic --profile fp_stress
+```
+
 ## Local QwenGuard Shim (OpenAI-Compatible)
 
 You can run a local OpenAI-compatible shim for `AIML-TUDA/QwenGuard-v1.2-3B`:

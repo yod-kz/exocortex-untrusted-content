@@ -18,14 +18,41 @@ or exfiltrate secrets.
 
 _HEURISTIC_PATTERNS: list[tuple[str, float, str]] = [
     (r"ignore\s+(all|any|previous|prior|above)\s+instructions", 0.65, "instruction_override"),
+    (r"ignore\s+(all|any)\s+above\b", 0.45, "instruction_override"),
     (r"disregard\s+(all|any|previous|prior|above)\s+instructions", 0.65, "instruction_override"),
     (r"you\s+are\s+now", 0.45, "role_override"),
     (r"system\s*:", 0.35, "system_prompt_spoof"),
-    (r"run_command|write_file|send_http_request|read_system_file", 0.75, "tool_invocation"),
+    (
+        r"(call|use|invoke|execute|run)\s+(the\s+)?(tool\s+)?(run_command|write_file|send_http_request|read_system_file)",
+        0.65,
+        "tool_invocation_intent",
+    ),
+    (r"run_command|write_file|send_http_request|read_system_file", 0.3, "tool_name_mention"),
     (r"curl\s+[^\s]+\s*\|\s*sh", 0.9, "remote_shell_payload"),
     (r"call\s+the\s+tool|execute\s+this|execute\s+it|urgent\b", 0.45, "agent_directive"),
     (r"base64|eval\(|frombase64string", 0.3, "obfuscation"),
+    (r"data:[^\s]{0,128};base64,[a-z0-9+/=]{16,}", 0.5, "embedded_data_uri"),
     (r"/etc/passwd|~/.ssh|~/.aws/credentials|private\s+key|api[_-]?key|credentials", 0.4, "credential_target"),
+]
+
+_EXPOSITORY_MARKERS = [
+    "example",
+    "examples",
+    "documentation",
+    "docs",
+    "tutorial",
+    "reference",
+    "training note",
+    "incident summary",
+    "blog post",
+]
+
+_NEGATED_INTENT_MARKERS = [
+    "never use",
+    "do not use",
+    "don't use",
+    "should not use",
+    "attempted to call",
 ]
 
 
@@ -93,6 +120,18 @@ class ScannerEngine:
             if re.search(pattern, lowered):
                 score += weight
                 labels.append(label)
+
+        has_override_signal = any(
+            label in labels for label in {"instruction_override", "role_override", "system_prompt_spoof"}
+        )
+        has_tool_intent = "tool_invocation_intent" in labels
+        has_expository_marker = any(marker in lowered for marker in _EXPOSITORY_MARKERS)
+        has_negated_intent = any(marker in lowered for marker in _NEGATED_INTENT_MARKERS)
+
+        if not has_override_signal and has_expository_marker:
+            score -= 0.45
+        if not has_override_signal and has_tool_intent and has_negated_intent:
+            score -= 0.55
 
         confidence = clip(score)
         pattern = ", ".join(labels[:3]) if labels else None

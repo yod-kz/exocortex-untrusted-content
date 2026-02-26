@@ -16,10 +16,7 @@ _PROMPT_INJECTION_PATTERNS = [
     r"developer\s+mode",
     r"override\s+(instructions|rules)",
     r"call\s+the\s+tool",
-    r"run_command",
-    r"write_file",
-    r"send_http_request",
-    r"read_system_file",
+    r"(call|use|invoke|execute|run)\s+(the\s+)?(tool\s+)?(run_command|write_file|send_http_request|read_system_file)",
 ]
 
 _JAILBREAK_PATTERNS = [
