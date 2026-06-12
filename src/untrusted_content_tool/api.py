@@ -26,6 +26,15 @@ def run_pipeline(request: PipelineRequest) -> PipelineResponse:
     return pipeline.process(request)
 
 
+# Compatibility alias for clients that address pipelines by id, e.g. the
+# OpenClaw untrusted-content guard plugin (POST /v1/pipelines/{id}/run). This
+# service hosts a single default pipeline, so the id is accepted for protocol
+# parity and the request runs through the same processing path.
+@app.post("/v1/pipelines/{pipeline_id}/run", response_model=PipelineResponse)
+def run_named_pipeline(pipeline_id: str, request: PipelineRequest) -> PipelineResponse:
+    return pipeline.process(request)
+
+
 @app.post("/v1/honeypot/trigger", response_model=HoneypotTriggerResponse)
 def honeypot_trigger(request: HoneypotTriggerRequest) -> HoneypotTriggerResponse:
     incident_path = pipeline.record_honeypot_trigger(request)
