@@ -1,10 +1,16 @@
 from __future__ import annotations
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.responses import JSONResponse
 
 from . import __version__
-from .models import HoneypotTriggerRequest, HoneypotTriggerResponse, PipelineRequest, PipelineResponse
+from .models import (
+    HoneypotTriggerRequest,
+    HoneypotTriggerResponse,
+    PipelineRequest,
+    PipelineResponse,
+    QuarantineRawResponse,
+)
 from .pipeline import UntrustedContentPipeline
 
 app = FastAPI(
@@ -33,6 +39,26 @@ def run_pipeline(request: PipelineRequest) -> PipelineResponse:
 @app.post("/v1/pipelines/{pipeline_id}/run", response_model=PipelineResponse)
 def run_named_pipeline(pipeline_id: str, request: PipelineRequest) -> PipelineResponse:
     return pipeline.process(request)
+
+
+# Operator-only raw retrieval. The stored raw content is hostile and is never
+# returned to the agent; this route exists solely for explicit operator inspection
+# of a quarantined item by its content id. read_raw enforces the path-traversal
+# guard and returns None (-> 404) for unsafe or missing ids.
+@app.get("/v1/quarantine/{content_id}", response_model=QuarantineRawResponse)
+def get_quarantine_raw(content_id: str) -> QuarantineRawResponse:
+    record = pipeline.storage.read_raw(content_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="not found")
+    return QuarantineRawResponse(
+        id=record.get("id", content_id),
+        raw_content=record.get("raw_content", ""),
+        source=record.get("source"),
+        url=record.get("url"),
+        content_type=record.get("content_type"),
+        sha256=record.get("sha256"),
+        timestamp=record.get("timestamp"),
+    )
 
 
 @app.post("/v1/honeypot/trigger", response_model=HoneypotTriggerResponse)

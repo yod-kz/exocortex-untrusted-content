@@ -156,6 +156,18 @@ class PipelineResponse(BaseModel):
     metadata: PipelineMetadata
 
 
+class QuarantineRawResponse(BaseModel):
+    # Operator-only view of the stored raw (hostile) content for a quarantined
+    # item. Never returned to the agent.
+    id: str
+    raw_content: str
+    source: str | None = None
+    url: str | None = None
+    content_type: str | None = None
+    sha256: str | None = None
+    timestamp: str | None = None
+
+
 class HoneypotTriggerRequest(BaseModel):
     tool_name: str
     session_key: str
